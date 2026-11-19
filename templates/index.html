@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netmiko Network Automation</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.5;
+        }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { margin-top: 0; font-size: 1.6rem; }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 0.75rem;
+        }
+        .device-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.65rem 0.85rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            background: #0f172a66;
+        }
+        .device-item:hover { border-color: var(--accent); }
+        .device-meta { font-size: 0.8rem; color: var(--muted); display: block; }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        select, textarea, button {
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #0f172a;
+            color: var(--text);
+            padding: 0.6rem 0.85rem;
+            font-size: 0.95rem;
+        }
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            font-family: "Consolas", "Courier New", monospace;
+            resize: vertical;
+        }
+        .presets { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+        .preset-btn {
+            font-size: 0.8rem;
+            padding: 0.3rem 0.65rem;
+            cursor: pointer;
+            background: #334155;
+        }
+        .preset-btn:hover { background: #475569; }
+        .run-btn {
+            background: var(--accent);
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0.75rem 1.5rem;
+            margin-top: 1rem;
+        }
+        .run-btn:hover { background: var(--accent-hover); }
+        .run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .result-card {
+            border-left: 4px solid var(--success);
+            margin-bottom: 1rem;
+        }
+        .result-card.error { border-left-color: var(--error); }
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .badge.success { background: #14532d; color: #86efac; }
+        .badge.error { background: #7f1d1d; color: #fca5a5; }
+        pre {
+            background: #090d16;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 0.88rem;
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Netmiko Automation Controller</h1>
+
+    <div class="card">
+        <div class="section-header">
+            <span>1. Select Target Devices</span>
+            <button type="button" class="preset-btn" onclick="toggleSelectAll()">Toggle All</button>
+        </div>
+        <div class="device-grid">
+            {% for dev in devices %}
+            <label class="device-item">
+                <input type="checkbox" name="device" value="{{ dev.name }}">
+                <div>
+                    <strong>{{ dev.name }}</strong>
+                    <span class="device-meta">{{ dev.host }} ({{ dev.device_type }})</span>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <span>2. Command Execution</span>
+        </div>
+        <div class="controls">
+            <select id="commandType">
+                <option value="show">Show Commands (Operational)</option>
+                <option value="config">Config Commands (Configuration Mode)</option>
+            </select>
+        </div>
+
+        <div class="presets">
+            <button type="button" class="preset-btn" onclick="setPreset('show', 'show ip interface brief')">show ip int brief</button>
+            <button type="button" class="preset-btn" onclick="setPreset('show', 'show version')">show version</button>
+            <button type="button" class="preset-btn" onclick="setPreset('show', 'show vlan brief')">show vlan brief</button>
+            <button type="button" class="preset-btn" onclick="setPreset('config', 'vlan 10\nname USERS')">Create VLAN 10</button>
+        </div>
+
+        <textarea id="commands" placeholder="Enter one command per line..."></textarea>
+        <button type="button" id="runBtn" class="run-btn" onclick="executeCommands()">Run Automation</button>
+    </div>
+
+    <div id="outputContainer"></div>
+</div>
+
+<script>
+    function toggleSelectAll() {
+        const boxes = document.querySelectorAll('input[name="device"]');
+        const allChecked = Array.from(boxes).every(cb => cb.checked);
+        boxes.forEach(cb => cb.checked = !allChecked);
+    }
+
+    function setPreset(type, cmd) {
+        document.getElementById('commandType').value = type;
+        document.getElementById('commands').value = cmd;
+    }
+
+    async function executeCommands() {
+        const selected = Array.from(document.querySelectorAll('input[name="device"]:checked')).map(cb => cb.value);
+        const commandType = document.getElementById('commandType').value;
+        const commands = document.getElementById('commands').value;
+        const runBtn = document.getElementById('runBtn');
+        const outputContainer = document.getElementById('outputContainer');
+
+        if (selected.length === 0 || !commands.trim()) {
+            alert("Select at least one device and enter a command.");
+            return;
+        }
+
+        runBtn.disabled = true;
+        runBtn.textContent = "Running SSH Tasks...";
+        outputContainer.innerHTML = "";
+
+        try {
+            const response = await fetch("/run", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    devices: selected,
+                    command_type: commandType,
+                    commands: commands
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || "Execution failed.");
+                return;
+            }
+
+            data.results.forEach(item => {
+                const card = document.createElement("div");
+                card.className = `card result-card ${item.status}`;
+                card.innerHTML = `
+                    <div class="section-header">
+                        <span>${item.device} (${item.host})</span>
+                        <span class="badge ${item.status}">${item.status}</span>
+                    </div>
+                    <pre></pre>
+                `;
+                card.querySelector("pre").textContent = item.output;
+                outputContainer.appendChild(card);
+            });
+        } catch (err) {
+            alert("Failed to reach Flask backend: " + err.message);
+        } finally {
+            runBtn.disabled = false;
+            runBtn.textContent = "Run Automation";
+        }
+    }
+</script>
+</body>
+</html>
